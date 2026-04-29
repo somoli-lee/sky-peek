@@ -1,0 +1,5 @@
+.env
+node_modules/
+.claude/
+다운로드/
+*.log

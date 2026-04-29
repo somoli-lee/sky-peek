@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sky Peek</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app">
+
+    <!-- ── Left Sidebar ── -->
+    <aside class="sidebar">
+      <div class="search-bar">
+        <span class="search-icon">🔍</span>
+        <input id="city-input" type="text" placeholder="도시 이름을 검색하세요..." autocomplete="off" />
+        <button id="search-btn" class="search-btn" title="검색">&#10148;</button>
+      </div>
+
+      <div class="weather-main" id="sidebar-content">
+        <div class="weather-icon-big" id="main-icon">🌤️</div>
+        <div class="temperature-big">
+          <span id="main-temp">--</span><span class="temp-unit-label" id="temp-unit-display">°C</span>
+        </div>
+        <div class="date-time" id="date-time">--</div>
+        <hr class="divider" />
+        <div class="condition-row">
+          <span id="cond-icon">⛅</span>
+          <span id="main-description">--</span>
+        </div>
+        <div class="condition-row">
+          <span>🌧️</span>
+          <span id="rain-info">강수량: --</span>
+        </div>
+      </div>
+
+      <div class="city-card" id="city-card">
+        <div class="city-card-bg" id="city-card-bg"></div>
+        <span id="city-name-display">도시를 검색하세요</span>
+      </div>
+    </aside>
+
+    <!-- ── Right Main ── -->
+    <main class="main-content">
+      <div class="top-bar">
+        <div class="tabs">
+          <button class="tab active" id="tab-today" onclick="switchTab('today')">Today</button>
+          <button class="tab" id="tab-week" onclick="switchTab('week')">Week</button>
+        </div>
+        <div class="unit-toggle">
+          <button class="unit-btn active" id="btn-c" onclick="setUnit('C')">°C</button>
+          <button class="unit-btn" id="btn-f" onclick="setUnit('F')">°F</button>
+        </div>
+      </div>
+
+      <!-- Today view -->
+      <div id="view-today">
+        <div class="forecast-row" id="forecast-row">
+          <!-- Filled by JS -->
+        </div>
+
+        <h2 class="highlights-title">Today's Highlights</h2>
+        <div class="highlights-grid">
+
+          <!-- UV Index -->
+          <div class="highlight-card">
+            <div class="card-label">UV Index</div>
+            <div class="uv-wrap">
+              <canvas id="uv-canvas" width="140" height="82"></canvas>
+              <div class="gauge-center-val" id="uv-value">N/A</div>
+            </div>
+          </div>
+
+          <!-- Wind Status -->
+          <div class="highlight-card">
+            <div class="card-label">Wind Status</div>
+            <div class="big-value">
+              <span id="wind-speed">--</span>
+              <span class="unit-small">m/s</span>
+            </div>
+            <div class="sub-value">
+              <span class="compass-dot"></span>
+              <span id="wind-dir-label">--</span>
+            </div>
+          </div>
+
+          <!-- Sunrise & Sunset -->
+          <div class="highlight-card">
+            <div class="card-label">Sunrise &amp; Sunset</div>
+            <div class="sun-rows">
+              <div class="sun-row">
+                <div class="sun-circle rise">🌅</div>
+                <div>
+                  <div class="sun-time" id="sunrise-time">--:--</div>
+                  <div class="sun-note">일출</div>
+                </div>
+              </div>
+              <div class="sun-row">
+                <div class="sun-circle set">🌇</div>
+                <div>
+                  <div class="sun-time" id="sunset-time">--:--</div>
+                  <div class="sun-note">일몰</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Humidity -->
+          <div class="highlight-card">
+            <div class="card-label">Humidity</div>
+            <div class="big-value">
+              <span id="humidity-val">--</span>
+              <span class="unit-small">%</span>
+            </div>
+            <div class="progress-wrap">
+              <div class="progress-bg">
+                <div class="progress-fill" id="hum-bar"></div>
+                <div class="progress-dot" id="hum-dot"></div>
+              </div>
+              <div class="progress-labels"><span>0</span><span>50</span><span>100</span></div>
+            </div>
+            <div class="sub-value" id="hum-status"></div>
+          </div>
+
+          <!-- Visibility -->
+          <div class="highlight-card">
+            <div class="card-label">Visibility</div>
+            <div class="big-value">
+              <span id="vis-val">N/A</span>
+            </div>
+            <div class="sub-value" id="vis-status">기상청 미제공 😶</div>
+          </div>
+
+          <!-- Air Quality -->
+          <div class="highlight-card">
+            <div class="card-label">Air Quality</div>
+            <div class="big-value air-row">
+              <span id="air-val">N/A</span>
+              <span class="air-dot" id="air-dot"></span>
+            </div>
+            <div class="sub-value" id="air-status">기상청 미제공 😶</div>
+          </div>
+
+        </div><!-- /highlights-grid -->
+      </div><!-- /view-today -->
+
+      <!-- Week view -->
+      <div id="view-week" style="display:none">
+        <div class="week-list" id="week-list"></div>
+      </div>
+
+      <!-- Loading -->
+      <div id="loading" class="overlay-center" style="display:none">
+        <div class="spinner"></div>
+        <p>날씨 정보를 불러오는 중...</p>
+      </div>
+
+      <!-- Error -->
+      <div id="error-card" class="error-card" style="display:none">
+        <span class="error-icon">⚠️</span>
+        <p id="error-msg"></p>
+        <p id="error-hint" class="error-hint"></p>
+      </div>
+
+    </main>
+  </div><!-- /app -->
+
+  <script src="app.js"></script>
+</body>
+</html>
