@@ -61,6 +61,40 @@ function latLngToGrid(lat, lng) {
   };
 }
 
+const AIR_GRADE = { 1: '좋음', 2: '보통', 3: '나쁨', 4: '매우나쁨' };
+
+// 전국 지도 주요 도시
+const MAP_CITIES = [
+  { name: '서울',   lat: 37.5665, lng: 126.9780 },
+  { name: '인천',   lat: 37.4563, lng: 126.7052 },
+  { name: '수원',   lat: 37.2636, lng: 127.0286 },
+  { name: '문산',   lat: 37.8636, lng: 126.7956 },
+  { name: '춘천',   lat: 37.8813, lng: 127.7300 },
+  { name: '강릉',   lat: 37.7519, lng: 128.8761 },
+  { name: '울릉도', lat: 37.4876, lng: 130.9057 },
+  { name: '대전',   lat: 36.3504, lng: 127.3845 },
+  { name: '청주',   lat: 36.6424, lng: 127.4890 },
+  { name: '전주',   lat: 35.8242, lng: 127.1480 },
+  { name: '광주',   lat: 35.1595, lng: 126.8526 },
+  { name: '대구',   lat: 35.8714, lng: 128.6014 },
+  { name: '부산',   lat: 35.1796, lng: 129.0756 },
+  { name: '제주',   lat: 33.4996, lng: 126.5312 },
+];
+let mapCache = null;
+let mapCacheTime = 0;
+const MAP_CACHE_TTL = 15 * 60 * 1000;
+
+// 에어코리아 시도명 매핑 (Nominatim state/city → sidoName)
+const SIDO_MAP = {
+  '서울특별시': '서울', '부산광역시': '부산', '대구광역시': '대구',
+  '인천광역시': '인천', '광주광역시': '광주', '대전광역시': '대전',
+  '울산광역시': '울산', '세종특별자치시': '세종', '경기도': '경기',
+  '강원특별자치도': '강원', '강원도': '강원', '충청북도': '충북',
+  '충청남도': '충남', '전북특별자치도': '전북', '전라북도': '전북',
+  '전라남도': '전남', '경상북도': '경북', '경상남도': '경남',
+  '제주특별자치도': '제주',
+};
+
 // ── 지오코딩 (Nominatim, 결과 인메모리 캐시) ─────────────────────────────────
 const geoCache = new Map();
 
@@ -102,8 +136,12 @@ async function geocodeLocation(query) {
     address?.county      ||
     display_name.split(',')[0].trim();
 
+  // 에어코리아 시도명 추출
+  const stateRaw = address?.province || address?.state || address?.city || '';
+  const sidoName = SIDO_MAP[stateRaw] ?? stateRaw.replace(/(특별시|광역시|특별자치시|특별자치도|도)$/, '').trim();
+
   const { nx, ny } = latLngToGrid(latNum, lngNum);
-  const result = { lat: latNum, lng: lngNum, nx, ny, name };
+  const result = { lat: latNum, lng: lngNum, nx, ny, name, sidoName };
   geoCache.set(key, result);
   return result;
 }
@@ -135,11 +173,11 @@ function getForecastBaseDateTime() {
   };
 }
 
-// ── KMA API Hub 기본 URL ──────────────────────────────────────────────────────
-const KMA_BASE = 'https://apihub.kma.go.kr/api/typ02/openApi/VilageFcstInfoService_2.0';
+// ── 기상청 data.go.kr API ─────────────────────────────────────────────────────
+const KMA_BASE = 'http://apis.data.go.kr/1360000/VilageFcstInfoService_2.0';
 
 function kmaUrl(endpoint, authKey, extra) {
-  return `${KMA_BASE}/${endpoint}?authKey=${authKey}&pageNo=1&numOfRows=1000&dataType=JSON&${extra}`;
+  return `${KMA_BASE}/${endpoint}?serviceKey=${authKey}&pageNo=1&numOfRows=1000&dataType=JSON&${extra}`;
 }
 
 app.use(express.static(path.join(__dirname, 'public')));
@@ -159,7 +197,15 @@ app.get('/api/weather', async (req, res) => {
     const url = kmaUrl('getUltraSrtNcst', authKey,
       `base_date=${base_date}&base_time=${base_time}&nx=${loc.nx}&ny=${loc.ny}`);
 
-    const response = await fetch(url);
+    const uvUrl =
+      `https://api.open-meteo.com/v1/forecast` +
+      `?latitude=${loc.lat}&longitude=${loc.lng}` +
+      `&current=uv_index&timezone=Asia%2FSeoul`;
+
+    const [response, uvRes] = await Promise.all([
+      fetch(url),
+      fetch(uvUrl).catch(() => null),
+    ]);
     const data = await response.json();
 
     const header = data?.response?.header;
@@ -176,6 +222,15 @@ app.get('/api/weather', async (req, res) => {
     const pty = get('PTY') ?? 0;
     const info = PTY_INFO[pty] ?? PTY_INFO[0];
 
+    let uvIndex = null;
+    if (uvRes) {
+      try {
+        const uvData = await uvRes.json();
+        const raw = uvData?.current?.uv_index;
+        if (raw !== null && raw !== undefined) uvIndex = Math.round(raw * 10) / 10;
+      } catch { /* UV 실패 시 null 유지 */ }
+    }
+
     res.json({
       city: loc.name,
       lat: loc.lat, lng: loc.lng,
@@ -186,6 +241,7 @@ app.get('/api/weather', async (req, res) => {
       wind_dir:      get('VEC'),
       precipitation: get('RN1'),
       pty,
+      uv_index:    uvIndex,
       description: info.description,
       icon:        info.icon,
       theme:       info.theme,
@@ -276,6 +332,110 @@ app.get('/api/forecast', async (req, res) => {
     const status = err.message.includes('찾을 수 없') ? 404 : 500;
     res.status(status).json({ error: err.message });
   }
+});
+
+// ── GET /api/air ─────────────────────────────────────────────────────────────
+app.get('/api/air', async (req, res) => {
+  const query   = req.query.city?.trim();
+  const authKey = process.env.KMA_API_KEY;
+
+  if (!query)   return res.status(400).json({ error: '도시/지역 이름을 입력해주세요.' });
+  if (!authKey) return res.status(500).json({ error: '서버 설정 오류: API 키가 없습니다.' });
+
+  try {
+    const loc      = await geocodeLocation(query);
+    const sidoName = loc.sidoName;
+
+    if (!sidoName) return res.status(400).json({ error: '시도 정보를 확인할 수 없습니다.' });
+
+    // 1단계: 시도별 API → 대표 측정소명 + PM10/통합지수
+    const sidoUrl =
+      `http://apis.data.go.kr/B552584/ArpltnInforInqireSvc/getCtprvnRltmMesureDnsty` +
+      `?serviceKey=${authKey}&returnType=json&numOfRows=1&pageNo=1` +
+      `&sidoName=${encodeURIComponent(sidoName)}&searchCondition=HOUR`;
+
+    const sidoResp = await fetch(sidoUrl);
+    const sidoData = await sidoResp.json();
+    const sidoItem = sidoData?.response?.body?.items?.[0];
+
+    if (!sidoItem) return res.status(502).json({ error: '대기질 데이터를 가져올 수 없습니다.' });
+
+    const stationName = sidoItem.stationName;
+
+    // 2단계: 측정소별 API → PM2.5 포함 전체 데이터
+    const msrstnUrl =
+      `http://apis.data.go.kr/B552584/ArpltnInforInqireSvc/getMsrstnAcctoRltmMesureDnsty` +
+      `?serviceKey=${authKey}&returnType=json&numOfRows=1&pageNo=1` +
+      `&stationName=${encodeURIComponent(stationName)}&dataTerm=DAILY&ver=1.4`;
+
+    const msrstnResp = await fetch(msrstnUrl);
+    const msrstnData = await msrstnResp.json();
+    const item       = msrstnData?.response?.body?.items?.[0] ?? sidoItem;
+
+    const toInt   = (v) => (v && v !== '-' ? parseInt(v)   : null);
+    const toFloat = (v) => (v && v !== '-' ? parseFloat(v) : null);
+    const toGrade = (v) => AIR_GRADE[parseInt(v)] ?? null;
+
+    res.json({
+      station:    stationName,
+      pm10:       toInt(item.pm10Value),
+      pm10Grade:  toGrade(item.pm10Grade1h ?? item.pm10Grade),
+      pm25:       toInt(item.pm25Value),
+      pm25Grade:  toGrade(item.pm25Grade1h ?? item.pm25Grade),
+      o3:         toFloat(item.o3Value),
+      o3Grade:    toGrade(item.o3Grade),
+      no2:        toFloat(item.no2Value),
+      khaiValue:  toInt(sidoItem.khaiValue),
+      khaiGrade:  toGrade(sidoItem.khaiGrade),
+    });
+  } catch (err) {
+    console.error('[/api/air]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /api/map ─────────────────────────────────────────────────────────────
+app.get('/api/map', async (_req, res) => {
+  if (mapCache && Date.now() - mapCacheTime < MAP_CACHE_TTL) {
+    return res.json(mapCache);
+  }
+
+  const authKey = process.env.KMA_API_KEY;
+  const { base_date, base_time } = getBaseDateTime();
+  const kstHour = new Date(Date.now() + 9 * 60 * 60 * 1000).getUTCHours();
+  const isNight = kstHour >= 21 || kstHour < 6;
+
+  const results = await Promise.allSettled(
+    MAP_CITIES.map(async (city) => {
+      const { nx, ny } = latLngToGrid(city.lat, city.lng);
+      const url = kmaUrl('getUltraSrtNcst', authKey,
+        `base_date=${base_date}&base_time=${base_time}&nx=${nx}&ny=${ny}`);
+      const resp = await fetch(url);
+      const data = await resp.json();
+      const header = data?.response?.header;
+      if (!header || header.resultCode !== '00') throw new Error('API error');
+      const items = data.response.body.items.item;
+      const get = (cat) => {
+        const it = items.find((i) => i.category === cat);
+        return it ? parseFloat(it.obsrValue) : null;
+      };
+      const pty = Math.round(get('PTY') ?? 0);
+      let icon, description, theme;
+      if (pty !== 0) {
+        ({ icon, description, theme } = PTY_INFO[pty] ?? PTY_INFO[0]);
+      } else {
+        icon = isNight ? '🌙' : '🌤️';
+        description = isNight ? '맑음(야간)' : '맑음';
+        theme = 'clear';
+      }
+      return { name: city.name, lat: city.lat, lng: city.lng, temp: get('T1H'), icon, description, theme };
+    })
+  );
+
+  const cities = results.filter((r) => r.status === 'fulfilled').map((r) => r.value);
+  mapCache = { cities, updated: new Date().toISOString() };
+  mapCacheTime = Date.now();
+  res.json(mapCache);
 });
 
 app.listen(PORT, () => {

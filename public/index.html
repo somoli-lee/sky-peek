@@ -4,13 +4,14 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Sky Peek</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <div class="app">
 
     <!-- ── Left Sidebar ── -->
-    <aside class="sidebar">
+    <aside class="sidebar" id="sidebar">
       <div class="search-bar">
         <span class="search-icon">🔍</span>
         <input id="city-input" type="text" placeholder="도시 이름을 검색하세요..." autocomplete="off" />
@@ -34,14 +35,31 @@
         </div>
       </div>
 
-      <div class="city-card" id="city-card">
-        <div class="city-card-bg" id="city-card-bg"></div>
-        <span id="city-name-display">도시를 검색하세요</span>
+      <!-- 저장된 지역 목록 -->
+      <div class="saved-section">
+        <div class="saved-header">
+          <span class="saved-title">저장된 지역 <span id="saved-count">0</span>/5</span>
+          <button id="save-city-btn" class="save-btn" onclick="addCurrentCity()" disabled>+ 저장</button>
+        </div>
+        <div class="saved-list" id="saved-list">
+          <div class="saved-empty">검색 후 지역을 저장하세요</div>
+        </div>
       </div>
     </aside>
 
     <!-- ── Right Main ── -->
-    <main class="main-content">
+    <main class="main-content" id="main-content">
+      <!-- 모바일 전용 도시 정보 헤더 -->
+      <div class="mobile-city-bar" id="mobile-city-bar">
+        <div class="mcb-icon" id="mcb-icon">🌤️</div>
+        <div class="mcb-info">
+          <div class="mcb-name" id="mcb-name">--</div>
+          <div class="mcb-detail" id="mcb-detail">--</div>
+        </div>
+        <div class="mcb-temp" id="mcb-temp">--</div>
+        <button id="mcb-save-btn" class="mcb-save-btn" onclick="addCurrentCity()" disabled>+ 저장</button>
+      </div>
+
       <div class="top-bar">
         <div class="tabs">
           <button class="tab active" id="tab-today" onclick="switchTab('today')">Today</button>
@@ -55,14 +73,11 @@
 
       <!-- Today view -->
       <div id="view-today">
-        <div class="forecast-row" id="forecast-row">
-          <!-- Filled by JS -->
-        </div>
+        <div class="forecast-row" id="forecast-row"></div>
 
         <h2 class="highlights-title">Today's Highlights</h2>
         <div class="highlights-grid">
 
-          <!-- UV Index -->
           <div class="highlight-card">
             <div class="card-label">UV Index</div>
             <div class="uv-wrap">
@@ -71,7 +86,6 @@
             </div>
           </div>
 
-          <!-- Wind Status -->
           <div class="highlight-card">
             <div class="card-label">Wind Status</div>
             <div class="big-value">
@@ -84,7 +98,6 @@
             </div>
           </div>
 
-          <!-- Sunrise & Sunset -->
           <div class="highlight-card">
             <div class="card-label">Sunrise &amp; Sunset</div>
             <div class="sun-rows">
@@ -105,7 +118,6 @@
             </div>
           </div>
 
-          <!-- Humidity -->
           <div class="highlight-card">
             <div class="card-label">Humidity</div>
             <div class="big-value">
@@ -122,27 +134,25 @@
             <div class="sub-value" id="hum-status"></div>
           </div>
 
-          <!-- Visibility -->
           <div class="highlight-card">
-            <div class="card-label">Visibility</div>
-            <div class="big-value">
-              <span id="vis-val">N/A</span>
+            <div class="card-label">미세먼지 <span class="station-name" id="air-station"></span></div>
+            <div class="air-grid">
+              <div class="air-item">
+                <div class="air-item-label">PM10</div>
+                <div class="air-item-val"><span id="pm10-val">--</span><span class="unit-small">㎍</span></div>
+                <div class="air-grade-badge" id="pm10-grade"></div>
+              </div>
+              <div class="air-item">
+                <div class="air-item-label">PM2.5</div>
+                <div class="air-item-val"><span id="pm25-val">--</span><span class="unit-small">㎍</span></div>
+                <div class="air-grade-badge" id="pm25-grade"></div>
+              </div>
             </div>
-            <div class="sub-value" id="vis-status">기상청 미제공 😶</div>
+            <div class="sub-value" id="air-status"></div>
           </div>
 
-          <!-- Air Quality -->
-          <div class="highlight-card">
-            <div class="card-label">Air Quality</div>
-            <div class="big-value air-row">
-              <span id="air-val">N/A</span>
-              <span class="air-dot" id="air-dot"></span>
-            </div>
-            <div class="sub-value" id="air-status">기상청 미제공 😶</div>
-          </div>
-
-        </div><!-- /highlights-grid -->
-      </div><!-- /view-today -->
+        </div>
+      </div>
 
       <!-- Week view -->
       <div id="view-week" style="display:none">
@@ -161,10 +171,32 @@
         <p id="error-msg"></p>
         <p id="error-hint" class="error-hint"></p>
       </div>
-
     </main>
+
+    <!-- ── 지도 패널 ── -->
+    <div class="map-panel" id="map-panel">
+      <div id="weather-map"></div>
+    </div>
+
+    <!-- ── 모바일 하단 탭 네비게이션 ── -->
+    <nav class="mobile-nav">
+      <button class="mobile-nav-btn active" data-panel="sidebar" onclick="switchMobilePanel('sidebar')">
+        <span class="mnb-icon">🌤</span>
+        <span class="mnb-label">날씨</span>
+      </button>
+      <button class="mobile-nav-btn" data-panel="main" onclick="switchMobilePanel('main')">
+        <span class="mnb-icon">📅</span>
+        <span class="mnb-label">예보</span>
+      </button>
+      <button class="mobile-nav-btn" data-panel="map" onclick="switchMobilePanel('map')">
+        <span class="mnb-icon">🗺</span>
+        <span class="mnb-label">지도</span>
+      </button>
+    </nav>
+
   </div><!-- /app -->
 
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
