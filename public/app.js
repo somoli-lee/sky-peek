@@ -504,6 +504,8 @@ function setUnit(unit) {
     renderHourly(forecastData.hourly);
     renderWeek(forecastData.daily);
     renderTempChart(forecastData.hourly);
+    renderTodaySummary();
+    renderWeekSummary();
   }
   renderSavedCities(); // 저장 카드 온도도 갱신
 }
@@ -610,6 +612,74 @@ function renderWeek(daily) {
   });
 }
 
+/* ── Weather Summary Text ── */
+function renderTodaySummary() {
+  const el = document.getElementById('today-summary');
+  if (!el || !currentWData) { if (el) el.textContent = ''; return; }
+
+  const city  = currentWData.city;
+  const desc  = currentWData.description;
+  const temp  = toDisplay(currentWData.temp);
+  const parts = [`오늘 ${city}은(는) ${desc}입니다.`];
+
+  if (forecastData?.daily?.length) {
+    const today = forecastData.daily[0];
+    const maxT  = today.max_temp !== null ? toDisplay(today.max_temp) + '°' : null;
+    const minT  = today.min_temp !== null ? toDisplay(today.min_temp) + '°' : null;
+    if (maxT && minT) parts.push(`최고 ${maxT} / 최저 ${minT}`);
+    if (today.pop > 0) parts.push(`강수확률 최대 ${today.pop}%`);
+  }
+
+  const tip =
+    currentWData.pty > 0          ? '우산을 챙기세요.' :
+    (currentWData.uv_index ?? 0) >= 8 ? '자외선이 강합니다. 선크림을 바르세요.' :
+    (currentWData.humidity ?? 0) >= 80 ? '습도가 높아 불쾌지수가 높습니다.' :
+    currentWData.temp >= 33        ? '폭염 주의가 필요합니다.' :
+    currentWData.temp <= 0         ? '영하의 날씨입니다. 따뜻하게 입으세요.' : '';
+
+  el.textContent = parts.join(' · ') + (tip ? '  ' + tip : '');
+}
+
+function renderWeekSummary() {
+  const el = document.getElementById('week-summary');
+  if (!el || !forecastData?.daily?.length) { if (el) el.textContent = ''; return; }
+
+  const daily   = forecastData.daily.slice(0, 7);
+  const DAYS    = ['일', '월', '화', '수', '목', '금', '토'];
+  const nowDs   = dateStr(new Date());
+
+  const rainyDays = daily.filter((d) => d.pop > 40);
+  let summary = '';
+
+  if (rainyDays.length === 0) {
+    summary = '이번 주는 대체로 맑겠습니다.';
+  } else if (rainyDays.length >= 4) {
+    summary = '이번 주는 흐리고 비 오는 날이 많겠습니다.';
+  } else {
+    const first = rainyDays[0];
+    const isToday = first.date === nowDs;
+    let dayLabel;
+    if (isToday) {
+      dayLabel = '오늘';
+    } else {
+      const y  = parseInt(first.date.slice(0, 4), 10);
+      const m  = parseInt(first.date.slice(4, 6), 10) - 1;
+      const d  = parseInt(first.date.slice(6, 8), 10);
+      dayLabel = DAYS[new Date(y, m, d).getDay()] + '요일';
+    }
+    summary = `${dayLabel}에 비가 예상됩니다. 우산을 준비하세요.`;
+  }
+
+  const validTemps = daily.map((d) => d.max_temp).filter((t) => t !== null);
+  if (validTemps.length >= 2) {
+    const diff = toDisplay(validTemps[validTemps.length - 1]) - toDisplay(validTemps[0]);
+    if (diff >= 5)       summary += ' 주말로 갈수록 기온이 오르겠습니다.';
+    else if (diff <= -5) summary += ' 주말로 갈수록 기온이 낮아지겠습니다.';
+  }
+
+  el.textContent = summary;
+}
+
 /* ── Candidate List ── */
 function showCandidates(candidates) {
   const list = document.getElementById('candidate-list');
@@ -684,6 +754,8 @@ async function searchCity(city, mobileTarget = 'sidebar') {
       renderHourly(fData.hourly);
       renderWeek(fData.daily);
       renderTempChart(fData.hourly);
+      renderTodaySummary();
+      renderWeekSummary();
     } else {
       forecastData = null;
       document.getElementById('forecast-row').innerHTML =
