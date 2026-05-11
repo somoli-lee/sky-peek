@@ -827,15 +827,42 @@ body.theme-overcast .sidebar { background: linear-gradient(160deg, #3e4455 0%, #
     height: 100%;
     overflow-y: auto;
     overflow-x: hidden;
-    padding: 20px 16px;
-    gap: 18px;
+    padding: 16px 14px;
+    gap: 14px;
   }
   .main-content::-webkit-scrollbar { width: 0; }
 
   /* 모바일 도시 바 표시 */
   .mobile-city-bar { display: flex; }
 
-  .highlights-grid { grid-template-columns: repeat(2, 1fr); }
+  /* 탭 바 — 가로 스크롤, 단위 토글은 우측 고정 */
+  .tabs {
+    flex: 1;
+    min-width: 0;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    flex-wrap: nowrap;
+  }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tab { padding: 6px 13px; font-size: 13px; white-space: nowrap; }
+
+  /* Highlights 그리드 — 모바일 2열 */
+  .highlights-grid { grid-template-columns: repeat(2, 1fr); gap: 12px; }
+
+  /* 하이라이트 카드 내 폰트 축소 */
+  .big-value { font-size: 40px; }
+  .air-item-val { font-size: 20px; }
+  .highlight-card { padding: 16px; gap: 10px; }
+
+  /* 주간 예보 모바일 */
+  .week-item { padding: 12px 14px; gap: 10px; }
+  .wi-day  { width: 80px; font-size: 13px; }
+  .wi-desc { font-size: 13px; }
+  .wi-pop  { width: 40px; font-size: 12px; }
+  .wi-temps { width: 72px; }
+  .wi-max  { font-size: 14px; }
+  .wi-min  { font-size: 12px; }
 }
 
 /* ════════════════════════════════════
@@ -843,8 +870,17 @@ body.theme-overcast .sidebar { background: linear-gradient(160deg, #3e4455 0%, #
 ════════════════════════════════════ */
 @media (max-width: 480px) {
   .highlights-grid { grid-template-columns: 1fr; }
-  .main-content { padding: 16px 12px; }
+  .main-content { padding: 14px 12px; gap: 12px; }
   .sidebar { padding: 16px 12px 12px; }
-
   .saved-city-card { max-height: 90px; }
+
+  .tab { padding: 5px 10px; font-size: 12px; }
+  .big-value { font-size: 36px; }
+  .highlight-card { padding: 14px; }
+
+  /* 주간 예보 — 매우 좁은 화면 */
+  .wi-day  { width: 64px; font-size: 12px; }
+  .wi-icon { width: 28px; font-size: 18px; }
+  .wi-desc { display: none; }
+  .wi-pop  { width: 36px; }
 }

@@ -479,7 +479,7 @@ function hideError() {
 
 /* ── Tab / Unit ── */
 function switchTab(tab) {
-  ['today', 'week', 'map'].forEach((t) => {
+  ['today', 'highlights', 'week', 'map'].forEach((t) => {
     document.getElementById(`tab-${t}`).classList.toggle('active', t === tab);
     document.getElementById(`view-${t}`).style.display = t === tab ? '' : 'none';
   });

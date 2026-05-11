@@ -68,6 +68,7 @@
       <div class="top-bar">
         <div class="tabs">
           <button class="tab active" id="tab-today" onclick="switchTab('today')">Today</button>
+          <button class="tab" id="tab-highlights" onclick="switchTab('highlights')">Highlights</button>
           <button class="tab" id="tab-week" onclick="switchTab('week')">Week</button>
           <button class="tab" id="tab-map" onclick="switchTab('map')">🗺 지도</button>
         </div>
@@ -80,12 +81,13 @@
       <!-- Today view -->
       <div id="view-today">
         <div class="forecast-row" id="forecast-row"></div>
-
         <div class="temp-chart-wrap">
           <canvas id="temp-chart"></canvas>
         </div>
+      </div>
 
-        <h2 class="highlights-title">Today's Highlights</h2>
+      <!-- Highlights view -->
+      <div id="view-highlights" style="display:none">
         <div class="highlights-grid">
 
           <div class="highlight-card">
