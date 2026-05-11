@@ -84,6 +84,19 @@ let mapCache = null;
 let mapCacheTime = 0;
 const MAP_CACHE_TTL = 15 * 60 * 1000;
 
+// 중기예보 지역코드 매핑 (sidoName → regId)
+const MID_REGION_MAP = {
+  '서울': '11B00000', '인천': '11B00000', '경기': '11B00000',
+  '강원': '11D10000',
+  '충북': '11C10000',
+  '충남': '11C20000', '대전': '11C20000', '세종': '11C20000',
+  '전북': '11F10000',
+  '전남': '11F20000', '광주': '11F20000',
+  '경북': '11H10000', '대구': '11H10000',
+  '경남': '11H20000', '부산': '11H20000', '울산': '11H20000',
+  '제주': '11G00000',
+};
+
 // 에어코리아 시도명 매핑 (Nominatim state/city → sidoName)
 const SIDO_MAP = {
   '서울특별시': '서울', '부산광역시': '부산', '대구광역시': '대구',
@@ -483,6 +496,90 @@ app.get('/api/alerts', async (_req, res) => {
   } catch (err) {
     console.error('[/api/alerts]', err.message);
     res.json([]);
+  }
+});
+
+// ── GET /api/midforecast ─────────────────────────────────────────────────────
+function getMidTmFcCandidates() {
+  const pad = (n) => String(n).padStart(2, '0');
+  const kst = new Date(Date.now() + 9 * 60 * 60 * 1000);
+  const h = kst.getUTCHours(), m = kst.getUTCMinutes();
+  const todayStr =
+    `${kst.getUTCFullYear()}${pad(kst.getUTCMonth() + 1)}${pad(kst.getUTCDate())}`;
+  const yesterday = new Date(kst);
+  yesterday.setUTCDate(yesterday.getUTCDate() - 1);
+  const yStr =
+    `${yesterday.getUTCFullYear()}${pad(yesterday.getUTCMonth() + 1)}${pad(yesterday.getUTCDate())}`;
+  const out = [];
+  if (h > 18 || (h === 18 && m >= 10)) out.push(`${todayStr}1800`);
+  if (h > 6  || (h === 6  && m >= 10)) out.push(`${todayStr}0600`);
+  out.push(`${yStr}1800`, `${yStr}0600`);
+  return out;
+}
+
+app.get('/api/midforecast', async (req, res) => {
+  const query   = req.query.city?.trim();
+  const authKey = process.env.KMA_API_KEY;
+
+  if (!query)   return res.status(400).json({ error: '도시/지역 이름을 입력해주세요.' });
+  if (!authKey) return res.status(500).json({ error: '서버 설정 오류: API 키가 없습니다.' });
+
+  try {
+    const loc   = await geocodeLocation(query);
+    const regId = MID_REGION_MAP[loc.sidoName] ?? '11B00000';
+    const pad   = (n) => String(n).padStart(2, '0');
+
+    let items    = null;
+    let usedTmFc = null;
+
+    for (const tmFc of getMidTmFcCandidates()) {
+      const url =
+        `http://apis.data.go.kr/1360000/MidFcstInfoService/getMidLandFcst` +
+        `?serviceKey=${authKey}&pageNo=1&numOfRows=10&dataType=JSON` +
+        `&regId=${regId}&tmFc=${tmFc}`;
+      const resp   = await fetch(url);
+      const data   = await resp.json();
+      const header = data?.response?.header;
+      if (header?.resultCode === '00') {
+        const raw = data?.response?.body?.items?.item;
+        const arr = Array.isArray(raw) ? raw : (raw ? [raw] : []);
+        if (arr.length > 0) { items = arr[0]; usedTmFc = tmFc; break; }
+      }
+    }
+
+    if (!items) return res.json({ days: [] });
+
+    const baseDate = new Date(
+      parseInt(usedTmFc.slice(0, 4), 10),
+      parseInt(usedTmFc.slice(4, 6), 10) - 1,
+      parseInt(usedTmFc.slice(6, 8), 10)
+    );
+    const dateOfDay = (n) => {
+      const d = new Date(baseDate);
+      d.setDate(d.getDate() + n);
+      return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}`;
+    };
+
+    const days = [];
+    for (let n = 3; n <= 7; n++) {
+      const amPop = items[`rnSt${n}Am`] !== undefined ? parseInt(items[`rnSt${n}Am`]) : null;
+      const pmPop = items[`rnSt${n}Pm`] !== undefined ? parseInt(items[`rnSt${n}Pm`]) : null;
+      days.push({
+        date:   dateOfDay(n),
+        amText: items[`wf${n}Am`] ?? null,
+        pmText: items[`wf${n}Pm`] ?? null,
+        pop: amPop !== null && pmPop !== null ? Math.max(amPop, pmPop) : (amPop ?? pmPop ?? null),
+      });
+    }
+    for (let n = 8; n <= 10; n++) {
+      const pop = items[`rnSt${n}`] !== undefined ? parseInt(items[`rnSt${n}`]) : null;
+      days.push({ date: dateOfDay(n), amText: items[`wf${n}`] ?? null, pmText: null, pop });
+    }
+
+    res.json({ days });
+  } catch (err) {
+    console.error('[/api/midforecast]', err.message);
+    res.status(500).json({ error: err.message });
   }
 });
 

@@ -4,6 +4,7 @@
 let currentUnit     = 'C';
 let currentTempC    = null;
 let forecastData    = null;
+let midForecastData = null;
 let currentCityName = '';
 let currentWData    = null;
 let currentAData    = null;
@@ -597,13 +598,21 @@ function renderWeek(daily) {
       dayLabel = `${DAYS[dt.getDay()]}요일 (${m + 1}/${d})`;
     }
 
+    const midDay = midForecastData?.days?.find(md => md.date === item.date);
+    let descText = item.description;
+    if (midDay?.amText) {
+      descText = midDay.pmText && midDay.pmText !== midDay.amText
+        ? `${midDay.amText} / ${midDay.pmText}`
+        : midDay.amText;
+    }
+
     const el = document.createElement('div');
     el.className = 'week-item';
     el.innerHTML =
       `<div class="wi-day">${dayLabel}</div>` +
       `<div class="wi-icon">${item.icon}</div>` +
-      `<div class="wi-desc">${item.description}</div>` +
-      `<div class="wi-pop">${item.pop ? `💧${item.pop}%` : ''}</div>` +
+      `<div class="wi-desc">${descText}</div>` +
+      `<div class="wi-pop">${item.pop !== null && item.pop > 0 ? `💧${item.pop}%` : (midDay?.pop ? `💧${midDay.pop}%` : '')}</div>` +
       `<div class="wi-temps">` +
         `<span class="wi-max">${item.max_temp !== null ? toDisplay(item.max_temp) + '°' : '--'}</span>` +
         `<span class="wi-min">${item.min_temp !== null ? toDisplay(item.min_temp) + '°' : '--'}</span>` +
@@ -618,10 +627,47 @@ function renderTodaySummary() {
   if (!el || !currentWData) { if (el) el.textContent = ''; return; }
 
   const city  = currentWData.city;
-  const desc  = currentWData.description;
-  const temp  = toDisplay(currentWData.temp);
-  const parts = [`오늘 ${city}은(는) ${desc}입니다.`];
+  const nowDs = dateStr(new Date());
+  const parts = [];
 
+  // 오전/오후/저녁별 대표 날씨 — 시간별 예보에서 추출
+  if (forecastData?.hourly?.length) {
+    const todaySlots = forecastData.hourly.filter(h => h.date === nowDs);
+    const periods = [
+      { label: '오전', start: 6,  end: 12 },
+      { label: '오후', start: 12, end: 18 },
+      { label: '저녁', start: 18, end: 24 },
+    ];
+
+    const descs = periods.map(({ label, start, end }) => {
+      const slots = todaySlots.filter(h => {
+        const hr = parseInt(h.time.substring(0, 2), 10);
+        return hr >= start && hr < end;
+      });
+      if (!slots.length) return null;
+      const slot = slots.find(s => s.pty > 0) ?? slots[Math.floor(slots.length / 2)];
+      return { label, desc: slot.description };
+    }).filter(Boolean);
+
+    // 연속 동일 날씨 압축 ("오전·오후 맑음" 형태)
+    const merged = descs.reduce((acc, cur) => {
+      const last = acc[acc.length - 1];
+      if (last && last.desc === cur.desc) last.label += `·${cur.label}`;
+      else acc.push({ ...cur });
+      return acc;
+    }, []);
+
+    if (merged.length) {
+      const timeText = merged.map(d => `${d.label} ${d.desc}`).join(', ');
+      parts.push(`오늘 ${city}은(는) ${timeText}입니다.`);
+    } else {
+      parts.push(`오늘 ${city}은(는) ${currentWData.description}입니다.`);
+    }
+  } else {
+    parts.push(`오늘 ${city}은(는) ${currentWData.description}입니다.`);
+  }
+
+  // 최고/최저 기온 + 강수확률
   if (forecastData?.daily?.length) {
     const today = forecastData.daily[0];
     const maxT  = today.max_temp !== null ? toDisplay(today.max_temp) + '°' : null;
@@ -631,11 +677,11 @@ function renderTodaySummary() {
   }
 
   const tip =
-    currentWData.pty > 0          ? '우산을 챙기세요.' :
-    (currentWData.uv_index ?? 0) >= 8 ? '자외선이 강합니다. 선크림을 바르세요.' :
+    currentWData.pty > 0              ? '우산을 챙기세요.' :
+    (currentWData.uv_index ?? 0) >= 8  ? '자외선이 강합니다. 선크림을 바르세요.' :
     (currentWData.humidity ?? 0) >= 80 ? '습도가 높아 불쾌지수가 높습니다.' :
-    currentWData.temp >= 33        ? '폭염 주의가 필요합니다.' :
-    currentWData.temp <= 0         ? '영하의 날씨입니다. 따뜻하게 입으세요.' : '';
+    currentWData.temp >= 33            ? '폭염 주의가 필요합니다.' :
+    currentWData.temp <= 0             ? '영하의 날씨입니다. 따뜻하게 입으세요.' : '';
 
   el.textContent = parts.join(' · ') + (tip ? '  ' + tip : '');
 }
@@ -644,37 +690,68 @@ function renderWeekSummary() {
   const el = document.getElementById('week-summary');
   if (!el || !forecastData?.daily?.length) { if (el) el.textContent = ''; return; }
 
-  const daily   = forecastData.daily.slice(0, 7);
-  const DAYS    = ['일', '월', '화', '수', '목', '금', '토'];
-  const nowDs   = dateStr(new Date());
+  const daily = forecastData.daily.slice(0, 7);
+  const DAYS  = ['일', '월', '화', '수', '목', '금', '토'];
+  const nowDs = dateStr(new Date());
 
-  const rainyDays = daily.filter((d) => d.pop > 40);
+  const getDayLabel = (d) => {
+    if (d.date === nowDs) return '오늘';
+    const y   = parseInt(d.date.slice(0, 4), 10);
+    const m   = parseInt(d.date.slice(4, 6), 10) - 1;
+    const day = parseInt(d.date.slice(6, 8), 10);
+    return DAYS[new Date(y, m, day).getDay()] + '요일';
+  };
+
+  const rainyDays = daily.filter(d => d.pop > 40);
   let summary = '';
 
   if (rainyDays.length === 0) {
-    summary = '이번 주는 대체로 맑겠습니다.';
-  } else if (rainyDays.length >= 4) {
+    summary = `이번 주 ${currentWData?.city ?? ''}은(는) 대체로 맑겠습니다.`;
+  } else if (rainyDays.length >= Math.ceil(daily.length * 0.6)) {
     summary = '이번 주는 흐리고 비 오는 날이 많겠습니다.';
   } else {
-    const first = rainyDays[0];
-    const isToday = first.date === nowDs;
-    let dayLabel;
-    if (isToday) {
-      dayLabel = '오늘';
+    // 연속 구간인지 확인
+    const indices  = rainyDays.map(d => daily.indexOf(d));
+    const isConsec = indices.every((idx, i) => i === 0 || idx === indices[i - 1] + 1);
+    const first    = getDayLabel(rainyDays[0]);
+    const last     = getDayLabel(rainyDays[rainyDays.length - 1]);
+
+    if (rainyDays.length === 1) {
+      summary = `${first}(강수확률 ${rainyDays[0].pop}%)에 비가 예상됩니다. 우산을 준비하세요.`;
+    } else if (isConsec) {
+      summary = `${first}부터 ${last}까지 비가 예상됩니다. 우산을 준비하세요.`;
     } else {
-      const y  = parseInt(first.date.slice(0, 4), 10);
-      const m  = parseInt(first.date.slice(4, 6), 10) - 1;
-      const d  = parseInt(first.date.slice(6, 8), 10);
-      dayLabel = DAYS[new Date(y, m, d).getDay()] + '요일';
+      summary = `${rainyDays.slice(0, 2).map(getDayLabel).join(', ')} 등에 비가 예상됩니다. 우산을 준비하세요.`;
     }
-    summary = `${dayLabel}에 비가 예상됩니다. 우산을 준비하세요.`;
   }
 
-  const validTemps = daily.map((d) => d.max_temp).filter((t) => t !== null);
-  if (validTemps.length >= 2) {
-    const diff = toDisplay(validTemps[validTemps.length - 1]) - toDisplay(validTemps[0]);
-    if (diff >= 5)       summary += ' 주말로 갈수록 기온이 오르겠습니다.';
-    else if (diff <= -5) summary += ' 주말로 갈수록 기온이 낮아지겠습니다.';
+  // 기온 추세 + 주간 최고/최저
+  const maxTemps = daily.map(d => d.max_temp).filter(t => t !== null);
+  const minTemps = daily.map(d => d.min_temp).filter(t => t !== null);
+  if (maxTemps.length >= 2) {
+    const diff = toDisplay(maxTemps[maxTemps.length - 1]) - toDisplay(maxTemps[0]);
+    if (diff >= 5)       summary += ' 기온은 주말로 갈수록 오르겠습니다.';
+    else if (diff <= -5) summary += ' 기온은 주말로 갈수록 낮아지겠습니다.';
+
+    const weekMax = Math.max(...maxTemps.map(t => toDisplay(t)));
+    const weekMin = minTemps.length ? Math.min(...minTemps.map(t => toDisplay(t))) : null;
+    summary += weekMin !== null
+      ? ` 이번 주 최고 ${weekMax}° / 최저 ${weekMin}°`
+      : ` 이번 주 최고 ${weekMax}°`;
+  }
+
+  // 중기예보 데이터로 단기 범위 이후 강수 여부 보완
+  if (midForecastData?.days?.length) {
+    const shortDates = new Set(daily.map(d => d.date));
+    const midExtra = midForecastData.days.filter(d => !shortDates.has(d.date));
+    if (midExtra.length > 0) {
+      const midRainy = midExtra.filter(d =>
+        (d.pop ?? 0) > 40 || [d.amText, d.pmText].some(t => t?.includes('비'))
+      );
+      if (midRainy.length > 0 && !summary.includes('비')) {
+        summary += ' 이후 비 오는 날도 예상됩니다.';
+      }
+    }
   }
 
   el.textContent = summary;
@@ -729,14 +806,16 @@ async function searchCity(city, mobileTarget = 'sidebar') {
   if (!city) return;
   showLoading(true);
   hideError();
+  midForecastData = null;
 
   if (window.innerWidth <= 900) switchMobilePanel(mobileTarget);
 
   try {
-    const [wRes, fRes, aRes] = await Promise.all([
+    const [wRes, fRes, aRes, mRes] = await Promise.all([
       fetch(`/api/weather?city=${encodeURIComponent(city)}`),
       fetch(`/api/forecast?city=${encodeURIComponent(city)}`),
       fetch(`/api/air?city=${encodeURIComponent(city)}`),
+      fetch(`/api/midforecast?city=${encodeURIComponent(city)}`),
     ]);
 
     const wData = await wRes.json();
@@ -747,6 +826,11 @@ async function searchCity(city, mobileTarget = 'sidebar') {
 
     displayWeather(wData);
     document.getElementById('city-input').value = '';
+
+    if (mRes.ok) {
+      const mData = await mRes.json();
+      midForecastData = mData.days?.length ? mData : null;
+    }
 
     if (fRes.ok) {
       const fData = await fRes.json();
