@@ -145,13 +145,37 @@ function extractLocationInfo(address, display_name) {
   return { name, sidoName };
 }
 
+const COORD_RE = /^(-?\d+\.?\d*),(-?\d+\.?\d*)$/;
+
 async function geocodeLocation(query) {
   const key = query.trim().toLowerCase();
   if (geoCache.has(key)) return geoCache.get(key);
 
-  const res = await fetch(buildNominatimUrl(query, 1), {
-    headers: { 'User-Agent': 'SkyPeek-WeatherApp/1.0 (leeandrew000770@gmail.com)' },
-  });
+  const HEADERS = { 'User-Agent': 'SkyPeek-WeatherApp/1.0 (leeandrew000770@gmail.com)' };
+
+  // "lat,lng" 형식 쿼리 → Nominatim 역지오코딩
+  const coordMatch = key.match(COORD_RE);
+  if (coordMatch) {
+    const latNum = parseFloat(coordMatch[1]);
+    const lngNum = parseFloat(coordMatch[2]);
+    if (!isInKorea(latNum, lngNum)) throw new Error('대한민국 지역이 아닌 것 같습니다.');
+
+    const reverseUrl =
+      `https://nominatim.openstreetmap.org/reverse` +
+      `?lat=${latNum}&lon=${lngNum}&format=json&addressdetails=1&accept-language=ko`;
+    const res = await fetch(reverseUrl, { headers: HEADERS });
+    if (!res.ok) throw new Error('위치 검색 서비스에 일시적으로 접근할 수 없습니다.');
+    const data = await res.json();
+    if (data.error) throw new Error('위치 정보를 찾을 수 없습니다.');
+    const { name, sidoName } = extractLocationInfo(data.address, data.display_name);
+    const { nx, ny } = latLngToGrid(latNum, lngNum);
+    const result = { lat: latNum, lng: lngNum, nx, ny, name, sidoName };
+    geoCacheSet(key, result);
+    return result;
+  }
+
+  // 일반 도시명 검색
+  const res = await fetch(buildNominatimUrl(query, 1), { headers: HEADERS });
   if (!res.ok) throw new Error('위치 검색 서비스에 일시적으로 접근할 수 없습니다.');
 
   const data = await res.json();
@@ -204,6 +228,22 @@ const KMA_BASE = 'http://apis.data.go.kr/1360000/VilageFcstInfoService_2.0';
 
 function kmaUrl(endpoint, authKey, extra) {
   return `${KMA_BASE}/${endpoint}?serviceKey=${authKey}&pageNo=1&numOfRows=1000&dataType=JSON&${extra}`;
+}
+
+async function kmaFetch(url) {
+  const resp = await fetch(url);
+  if (resp.status === 401 || resp.status === 403) {
+    throw new Error('기상청 API 키 인증 실패입니다. data.go.kr에서 API 키를 갱신해주세요.');
+  }
+  if (!resp.ok) {
+    throw new Error(`기상청 API 오류 (${resp.status})`);
+  }
+  const text = await resp.text();
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error('기상청 API가 예상치 못한 응답을 반환했습니다. API 키를 확인해주세요.');
+  }
 }
 
 app.use(express.static(path.join(__dirname, 'public')));
@@ -267,11 +307,10 @@ app.get('/api/weather', async (req, res) => {
       `?latitude=${loc.lat}&longitude=${loc.lng}` +
       `&current=uv_index&timezone=Asia%2FSeoul`;
 
-    const [response, uvRes] = await Promise.all([
-      fetch(url),
+    const [data, uvRes] = await Promise.all([
+      kmaFetch(url),
       fetch(uvUrl).catch(() => null),
     ]);
-    const data = await response.json();
 
     const header = data?.response?.header;
     if (!header || header.resultCode !== '00') {
@@ -333,8 +372,7 @@ app.get('/api/forecast', async (req, res) => {
     const url = kmaUrl('getVilageFcst', authKey,
       `base_date=${base_date}&base_time=${base_time}&nx=${loc.nx}&ny=${loc.ny}`);
 
-    const response = await fetch(url);
-    const data = await response.json();
+    const data = await kmaFetch(url);
 
     const header = data?.response?.header;
     if (!header || header.resultCode !== '00') {
@@ -537,8 +575,7 @@ app.get('/api/midforecast', async (req, res) => {
         `http://apis.data.go.kr/1360000/MidFcstInfoService/getMidLandFcst` +
         `?serviceKey=${authKey}&pageNo=1&numOfRows=10&dataType=JSON` +
         `&regId=${regId}&tmFc=${tmFc}`;
-      const resp   = await fetch(url);
-      const data   = await resp.json();
+      const data   = await kmaFetch(url).catch(() => null);
       const header = data?.response?.header;
       if (header?.resultCode === '00') {
         const raw = data?.response?.body?.items?.item;
@@ -599,8 +636,7 @@ app.get('/api/map', async (_req, res) => {
       const { nx, ny } = latLngToGrid(city.lat, city.lng);
       const url = kmaUrl('getUltraSrtNcst', authKey,
         `base_date=${base_date}&base_time=${base_time}&nx=${nx}&ny=${ny}`);
-      const resp = await fetch(url);
-      const data = await resp.json();
+      const data = await kmaFetch(url);
       const header = data?.response?.header;
       if (!header || header.resultCode !== '00') throw new Error('API error');
       const items = data.response.body.items.item;
