@@ -103,22 +103,20 @@ function renderSavedCities() {
 
 /* ── 모바일 패널 전환 ── */
 function switchMobilePanel(panel) {
-  const sidebar  = document.getElementById('sidebar');
-  const main     = document.getElementById('main-content');
-  const mapPanel = document.getElementById('map-panel');
+  const sidebar = document.getElementById('sidebar');
+  const main    = document.getElementById('main-content');
 
   sidebar.classList.remove('panel-active');
   main.classList.remove('panel-active');
-  if (mapPanel) mapPanel.classList.remove('panel-active');
 
   if (panel === 'sidebar') {
     sidebar.classList.add('panel-active');
-  } else if (panel === 'main') {
+  } else {
     main.classList.add('panel-active');
-  } else if (panel === 'map') {
-    if (mapPanel) {
-      mapPanel.classList.add('panel-active');
-      requestAnimationFrame(() => initMapIfNeeded());
+    if (panel === 'map') {
+      switchTab('map');
+    } else if (document.getElementById('tab-map').classList.contains('active')) {
+      switchTab('today');
     }
   }
 
@@ -342,10 +340,16 @@ function hideError() {
 
 /* ── Tab / Unit ── */
 function switchTab(tab) {
-  ['today', 'week'].forEach((t) => {
+  ['today', 'week', 'map'].forEach((t) => {
     document.getElementById(`tab-${t}`).classList.toggle('active', t === tab);
     document.getElementById(`view-${t}`).style.display = t === tab ? '' : 'none';
   });
+  if (tab === 'map') {
+    requestAnimationFrame(() => {
+      initMapIfNeeded();
+      if (weatherMap) weatherMap.invalidateSize();
+    });
+  }
 }
 
 function setUnit(unit) {
@@ -466,6 +470,50 @@ function renderWeek(daily) {
   });
 }
 
+/* ── Candidate List ── */
+function showCandidates(candidates) {
+  const list = document.getElementById('candidate-list');
+  list.innerHTML =
+    `<div class="candidate-header">지역을 선택해주세요 (${candidates.length}개)</div>` +
+    candidates.map((c) =>
+      `<div class="candidate-item" data-key="${c.cacheKey}">` +
+        `<div class="candidate-name">${c.name}</div>` +
+        `<div class="candidate-region">${c.region}</div>` +
+      `</div>`
+    ).join('');
+  list.style.display = '';
+}
+
+function hideCandidates() {
+  const list = document.getElementById('candidate-list');
+  list.style.display = 'none';
+  list.innerHTML = '';
+}
+
+async function handleSearch(query, mobileTarget = 'main') {
+  if (!query) return;
+  hideCandidates();
+
+  try {
+    const res = await fetch(`/api/geocode?q=${encodeURIComponent(query)}`);
+    const candidates = await res.json();
+
+    if (!res.ok) throw new Error(candidates.error || '위치 검색 실패');
+    if (!candidates.length) {
+      showError(`'${query}' 위치를 찾을 수 없습니다.`, '다른 이름으로 검색해보세요.');
+      return;
+    }
+
+    if (candidates.length === 1) {
+      searchCity(candidates[0].cacheKey, mobileTarget);
+    } else {
+      showCandidates(candidates);
+    }
+  } catch (err) {
+    showError(err.message || '오류가 발생했습니다.');
+  }
+}
+
 /* ── Search ── */
 async function searchCity(city, mobileTarget = 'sidebar') {
   if (!city) return;
@@ -529,16 +577,28 @@ function init() {
     document.getElementById('sidebar').classList.add('panel-active');
   }
 
+  document.getElementById('candidate-list').addEventListener('click', (e) => {
+    const item = e.target.closest('.candidate-item');
+    if (!item) return;
+    hideCandidates();
+    searchCity(item.dataset.key, 'main');
+  });
+
   document.getElementById('search-btn').addEventListener('click', () => {
     const city = document.getElementById('city-input').value.trim();
-    if (city) searchCity(city, 'main');
+    if (city) handleSearch(city, 'main');
   });
 
   document.getElementById('city-input').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
       const city = e.target.value.trim();
-      if (city) searchCity(city, 'main');
+      if (city) handleSearch(city, 'main');
     }
+    if (e.key === 'Escape') hideCandidates();
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.search-wrap')) hideCandidates();
   });
 
   // 저장된 첫 번째 도시 or 서울 로드

@@ -1,6 +1,6 @@
-require('dotenv').config();
-const express = require('express');
 const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '.env') });
+const express = require('express');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -97,17 +97,46 @@ const SIDO_MAP = {
 
 // ── 지오코딩 (Nominatim, 결과 인메모리 캐시) ─────────────────────────────────
 const geoCache = new Map();
+const GEO_CACHE_MAX = 500;
+
+function geoCacheSet(key, value) {
+  if (geoCache.size >= GEO_CACHE_MAX) geoCache.delete(geoCache.keys().next().value);
+  geoCache.set(key, value);
+}
+
+function buildNominatimUrl(query, limit) {
+  return (
+    `https://nominatim.openstreetmap.org/search` +
+    `?q=${encodeURIComponent(query)}` +
+    `&countrycodes=kr&format=json&limit=${limit}&addressdetails=1&accept-language=ko`
+  );
+}
+
+function isInKorea(lat, lng) {
+  return lat >= 33.0 && lat <= 39.5 && lng >= 124.0 && lng <= 132.0;
+}
+
+function extractLocationInfo(address, display_name) {
+  const name =
+    address?.quarter       ||
+    address?.suburb        ||
+    address?.village       ||
+    address?.town          ||
+    address?.city_district ||
+    address?.borough       ||
+    address?.city          ||
+    address?.county        ||
+    display_name.split(',')[0].trim();
+  const stateRaw = address?.province || address?.state || address?.city || '';
+  const sidoName = SIDO_MAP[stateRaw] ?? stateRaw.replace(/(특별시|광역시|특별자치시|특별자치도|도)$/, '').trim();
+  return { name, sidoName };
+}
 
 async function geocodeLocation(query) {
   const key = query.trim().toLowerCase();
   if (geoCache.has(key)) return geoCache.get(key);
 
-  const url =
-    `https://nominatim.openstreetmap.org/search` +
-    `?q=${encodeURIComponent(query)}` +
-    `&countrycodes=kr&format=json&limit=1&addressdetails=1&accept-language=ko`;
-
-  const res = await fetch(url, {
+  const res = await fetch(buildNominatimUrl(query, 1), {
     headers: { 'User-Agent': 'SkyPeek-WeatherApp/1.0 (leeandrew000770@gmail.com)' },
   });
   if (!res.ok) throw new Error('위치 검색 서비스에 일시적으로 접근할 수 없습니다.');
@@ -119,30 +148,14 @@ async function geocodeLocation(query) {
   const latNum = parseFloat(lat);
   const lngNum = parseFloat(lon);
 
-  // 대한민국 영역 외 차단 (위도 33~39, 경도 124~132)
-  if (latNum < 33.0 || latNum > 39.5 || lngNum < 124.0 || lngNum > 132.0) {
+  if (!isInKorea(latNum, lngNum)) {
     throw new Error(`'${query}'은(는) 대한민국 지역이 아닌 것 같습니다.`);
   }
 
-  // 표시 이름: 읍/면/동/구/시 순으로 가장 구체적인 이름 선택
-  const name =
-    address?.quarter     ||
-    address?.suburb      ||
-    address?.village     ||
-    address?.town        ||
-    address?.city_district ||
-    address?.borough     ||
-    address?.city        ||
-    address?.county      ||
-    display_name.split(',')[0].trim();
-
-  // 에어코리아 시도명 추출
-  const stateRaw = address?.province || address?.state || address?.city || '';
-  const sidoName = SIDO_MAP[stateRaw] ?? stateRaw.replace(/(특별시|광역시|특별자치시|특별자치도|도)$/, '').trim();
-
+  const { name, sidoName } = extractLocationInfo(address, display_name);
   const { nx, ny } = latLngToGrid(latNum, lngNum);
   const result = { lat: latNum, lng: lngNum, nx, ny, name, sidoName };
-  geoCache.set(key, result);
+  geoCacheSet(key, result);
   return result;
 }
 
@@ -181,6 +194,45 @@ function kmaUrl(endpoint, authKey, extra) {
 }
 
 app.use(express.static(path.join(__dirname, 'public')));
+
+// ── GET /api/geocode ─────────────────────────────────────────────────────────
+app.get('/api/geocode', async (req, res) => {
+  const query = req.query.q?.trim();
+  if (!query) return res.status(400).json({ error: '검색어를 입력해주세요.' });
+
+  try {
+    const resp = await fetch(buildNominatimUrl(query, 5), {
+      headers: { 'User-Agent': 'SkyPeek-WeatherApp/1.0 (leeandrew000770@gmail.com)' },
+    });
+    if (!resp.ok) throw new Error('위치 검색 서비스에 일시적으로 접근할 수 없습니다.');
+
+    const data = await resp.json();
+
+    const candidates = data
+      .filter((item) => isInKorea(parseFloat(item.lat), parseFloat(item.lon)))
+      .map((item) => {
+        const { lat: latStr, lon, address, display_name } = item;
+        const latNum = parseFloat(latStr);
+        const lngNum = parseFloat(lon);
+        const { name, sidoName } = extractLocationInfo(address, display_name);
+
+        const parts = display_name.split(',').map((s) => s.trim())
+          .filter((s) => s && s !== '대한민국');
+        const region = parts.slice(1, 4).join(' · ');
+
+        const cacheKey = `${latNum},${lngNum}`;
+        const { nx, ny } = latLngToGrid(latNum, lngNum);
+        geoCacheSet(cacheKey, { lat: latNum, lng: lngNum, nx, ny, name, sidoName });
+
+        return { name, region, cacheKey, lat: latNum, lng: lngNum };
+      });
+
+    res.json(candidates);
+  } catch (err) {
+    console.error('[/api/geocode]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // ── GET /api/weather ─────────────────────────────────────────────────────────
 app.get('/api/weather', async (req, res) => {
@@ -337,7 +389,8 @@ app.get('/api/forecast', async (req, res) => {
 // ── GET /api/air ─────────────────────────────────────────────────────────────
 app.get('/api/air', async (req, res) => {
   const query   = req.query.city?.trim();
-  const authKey = process.env.KMA_API_KEY;
+  // 에어코리아(data.go.kr)는 별도 키 사용, 없으면 KMA 키로 시도
+  const authKey = process.env.AIR_API_KEY || process.env.KMA_API_KEY;
 
   if (!query)   return res.status(400).json({ error: '도시/지역 이름을 입력해주세요.' });
   if (!authKey) return res.status(500).json({ error: '서버 설정 오류: API 키가 없습니다.' });

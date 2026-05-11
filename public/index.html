@@ -12,10 +12,13 @@
 
     <!-- ── Left Sidebar ── -->
     <aside class="sidebar" id="sidebar">
-      <div class="search-bar">
-        <span class="search-icon">🔍</span>
-        <input id="city-input" type="text" placeholder="도시 이름을 검색하세요..." autocomplete="off" />
-        <button id="search-btn" class="search-btn" title="검색">&#10148;</button>
+      <div class="search-wrap">
+        <div class="search-bar">
+          <span class="search-icon">🔍</span>
+          <input id="city-input" type="text" placeholder="도시 이름을 검색하세요..." autocomplete="off" />
+          <button id="search-btn" class="search-btn" title="검색">&#10148;</button>
+        </div>
+        <div class="candidate-list" id="candidate-list" style="display:none"></div>
       </div>
 
       <div class="weather-main" id="sidebar-content">
@@ -64,6 +67,7 @@
         <div class="tabs">
           <button class="tab active" id="tab-today" onclick="switchTab('today')">Today</button>
           <button class="tab" id="tab-week" onclick="switchTab('week')">Week</button>
+          <button class="tab" id="tab-map" onclick="switchTab('map')">🗺 지도</button>
         </div>
         <div class="unit-toggle">
           <button class="unit-btn active" id="btn-c" onclick="setUnit('C')">°C</button>
@@ -159,6 +163,11 @@
         <div class="week-list" id="week-list"></div>
       </div>
 
+      <!-- Map view -->
+      <div id="view-map" style="display:none">
+        <div id="weather-map"></div>
+      </div>
+
       <!-- Loading -->
       <div id="loading" class="overlay-center" style="display:none">
         <div class="spinner"></div>
@@ -172,11 +181,6 @@
         <p id="error-hint" class="error-hint"></p>
       </div>
     </main>
-
-    <!-- ── 지도 패널 ── -->
-    <div class="map-panel" id="map-panel">
-      <div id="weather-map"></div>
-    </div>
 
     <!-- ── 모바일 하단 탭 네비게이션 ── -->
     <nav class="mobile-nav">

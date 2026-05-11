@@ -41,6 +41,12 @@ body.theme-drizzle  .sidebar { background: linear-gradient(160deg, #3a7bd5 0%, #
 body.theme-cloudy   .sidebar { background: linear-gradient(160deg, #5a6a85 0%, #38475e 100%); }
 body.theme-overcast .sidebar { background: linear-gradient(160deg, #3e4455 0%, #1e2130 100%); }
 
+/* ── Search Wrap ── */
+.search-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
 /* ── Search Bar ── */
 .search-bar {
   display: flex;
@@ -76,6 +82,47 @@ body.theme-overcast .sidebar { background: linear-gradient(160deg, #3e4455 0%, #
   flex-shrink: 0;
 }
 .search-btn:hover { opacity: 1; }
+
+/* ── Candidate List ── */
+.candidate-list {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  background: #1a1d32;
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 10px;
+  overflow: hidden;
+  z-index: 100;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+}
+.candidate-header {
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.4);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  padding: 8px 12px 6px;
+}
+.candidate-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 9px 14px;
+  cursor: pointer;
+  transition: background 0.15s;
+  border-top: 1px solid rgba(255,255,255,0.06);
+}
+.candidate-item:hover { background: rgba(255,255,255,0.1); }
+.candidate-name {
+  font-size: 14px;
+  color: #e7e7eb;
+  font-weight: 500;
+}
+.candidate-region {
+  font-size: 12px;
+  color: rgba(255,255,255,0.45);
+}
 
 /* ── Weather Main ── */
 .weather-main {
@@ -558,8 +605,19 @@ body.theme-overcast .sidebar { background: linear-gradient(160deg, #3e4455 0%, #
 /* ── Mobile Bottom Nav (숨김 기본) ── */
 .mobile-nav { display: none; }
 
-/* ── Map Panel (데스크탑에서 숨김) ── */
-.map-panel { display: none; }
+/* ── Map View (main-content 안에서 지도를 꽉 채움) ── */
+#view-map {
+  flex: 1;
+  min-height: 0;
+  border-radius: 16px;
+  overflow: hidden;
+  margin: -4px 0;
+}
+#weather-map {
+  width: 100%;
+  height: 100%;
+  min-height: 400px;
+}
 
 /* ── Leaflet 날씨 마커 (참고 이미지: 도시명/아이콘/온도 세로 배치) ── */
 .weather-marker { background: none !important; border: none !important; }
@@ -642,20 +700,18 @@ body.theme-overcast .sidebar { background: linear-gradient(160deg, #3e4455 0%, #
   .mnb-label { font-size: 11px; font-weight: 500; }
 
   /* ── 패널 전환 ── */
-  .sidebar, .main-content, .map-panel { display: none; }
-  .sidebar.panel-active     { display: flex; }
+  .sidebar, .main-content { display: none; }
+  .sidebar.panel-active      { display: flex; }
   .main-content.panel-active { display: flex; }
-  .map-panel.panel-active {
-    display: flex;
-    flex-direction: column;
-    width: 100%;
-    height: 100%;
-  }
-  #weather-map {
+
+  /* 모바일 지도 탭: view-map이 남은 높이 전부 차지 */
+  #view-map {
     flex: 1;
-    width: 100%;
     min-height: 0;
+    border-radius: 0;
+    margin: 0;
   }
+  #weather-map { min-height: 0; }
 
   /* ── 사이드바 (날씨 탭) ── */
   .sidebar {
