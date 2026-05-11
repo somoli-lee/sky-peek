@@ -63,6 +63,8 @@
         <button id="mcb-save-btn" class="mcb-save-btn" onclick="addCurrentCity()" disabled>+ 저장</button>
       </div>
 
+      <div id="alert-banner" class="alert-banner" style="display:none"></div>
+
       <div class="top-bar">
         <div class="tabs">
           <button class="tab active" id="tab-today" onclick="switchTab('today')">Today</button>
@@ -78,6 +80,10 @@
       <!-- Today view -->
       <div id="view-today">
         <div class="forecast-row" id="forecast-row"></div>
+
+        <div class="temp-chart-wrap">
+          <canvas id="temp-chart"></canvas>
+        </div>
 
         <h2 class="highlights-title">Today's Highlights</h2>
         <div class="highlights-grid">
@@ -151,8 +157,18 @@
                 <div class="air-item-val"><span id="pm25-val">--</span><span class="unit-small">㎍</span></div>
                 <div class="air-grade-badge" id="pm25-grade"></div>
               </div>
+              <div class="air-item">
+                <div class="air-item-label">오존 O₃</div>
+                <div class="air-item-val"><span id="o3-val">--</span><span class="unit-small">ppm</span></div>
+                <div class="air-grade-badge" id="o3-grade"></div>
+              </div>
+              <div class="air-item">
+                <div class="air-item-label">이산화질소 NO₂</div>
+                <div class="air-item-val"><span id="no2-val">--</span><span class="unit-small">ppm</span></div>
+              </div>
             </div>
             <div class="sub-value" id="air-status"></div>
+            <div class="air-recommendation" id="air-recommendation"></div>
           </div>
 
         </div>

@@ -286,23 +286,162 @@ function updateHumBar(pct) {
 }
 
 /* ── Air Quality ── */
+function getAirRecommendation(grade) {
+  const recs = {
+    '좋음':    '😊 야외 활동에 적합합니다',
+    '보통':    '😐 민감군은 장시간 야외 활동 주의',
+    '나쁨':    '😷 마스크 착용 권고, 야외 활동 자제',
+    '매우나쁨': '🚫 외출 자제, 마스크 필수',
+  };
+  return recs[grade] ?? '';
+}
+
 function displayAir(data) {
   const gradeClass = { '좋음': 'good', '보통': 'normal', '나쁨': 'bad', '매우나쁨': 'very-bad' };
 
   const setItem = (valId, gradeId, value, grade) => {
     document.getElementById(valId).textContent = value ?? '--';
-    const el = document.getElementById(gradeId);
-    el.textContent = grade ?? '';
-    el.className   = 'air-grade-badge' + (grade ? ' ' + (gradeClass[grade] ?? '') : '');
+    if (gradeId) {
+      const el = document.getElementById(gradeId);
+      el.textContent = grade ?? '';
+      el.className   = 'air-grade-badge' + (grade ? ' ' + (gradeClass[grade] ?? '') : '');
+    }
   };
 
   document.getElementById('air-station').textContent = data.station ? `(${data.station})` : '';
   setItem('pm10-val', 'pm10-grade', data.pm10, data.pm10Grade);
   setItem('pm25-val', 'pm25-grade', data.pm25, data.pm25Grade);
+  setItem('o3-val',  'o3-grade',  data.o3  !== null ? data.o3?.toFixed(3)  : null, data.o3Grade);
+  setItem('no2-val', null,        data.no2 !== null ? data.no2?.toFixed(3) : null, null);
 
   const khai = data.khaiGrade;
   document.getElementById('air-status').textContent =
     khai ? `통합대기환경지수 ${khai}` + (data.khaiValue !== null ? ` (${data.khaiValue})` : '') : '';
+
+  const gradeOrder = { '매우나쁨': 4, '나쁨': 3, '보통': 2, '좋음': 1 };
+  const worstGrade = [data.pm25Grade, data.pm10Grade, data.o3Grade, khai]
+    .reduce((worst, g) => (gradeOrder[g] ?? 0) > (gradeOrder[worst] ?? 0) ? g : worst, null);
+  document.getElementById('air-recommendation').textContent = getAirRecommendation(worstGrade);
+}
+
+/* ── Hourly Temperature Chart ── */
+function renderTempChart(hourly) {
+  const canvas = document.getElementById('temp-chart');
+  if (!canvas || !hourly || !hourly.length) return;
+
+  const ctx  = canvas.getContext('2d');
+  const now  = new Date();
+  const nowDs   = dateStr(now);
+  const nowHour = now.getHours();
+
+  const items = hourly.filter((h) => {
+    if (h.date > nowDs) return true;
+    return h.date === nowDs && parseInt(h.time.substring(0, 2), 10) >= nowHour;
+  }).slice(0, 24);
+  if (!items.length) return;
+
+  const dpr  = window.devicePixelRatio || 1;
+  const W    = canvas.parentElement.clientWidth || 600;
+  const H    = 130;
+  canvas.width  = W * dpr;
+  canvas.height = H * dpr;
+  canvas.style.width  = W + 'px';
+  canvas.style.height = H + 'px';
+  ctx.scale(dpr, dpr);
+
+  const PAD  = { top: 20, right: 16, bottom: 28, left: 10 };
+  const cW   = W - PAD.left - PAD.right;
+  const cH   = H - PAD.top  - PAD.bottom;
+
+  const temps = items.map((i) => toDisplay(i.temp ?? 0));
+  const pops  = items.map((i) => i.pop ?? 0);
+  const minT  = Math.min(...temps) - 2;
+  const maxT  = Math.max(...temps) + 2;
+  const range = maxT - minT || 1;
+
+  const n    = items.length;
+  const xAt  = (i) => PAD.left + (i / (n - 1 || 1)) * cW;
+  const yAt  = (t) => PAD.top  + cH - ((t - minT) / range) * cH;
+
+  ctx.clearRect(0, 0, W, H);
+
+  // POP area
+  ctx.beginPath();
+  items.forEach((_, i) => {
+    const x = xAt(i);
+    const y = PAD.top + cH - (pops[i] / 100) * cH * 0.42;
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.lineTo(xAt(n - 1), PAD.top + cH);
+  ctx.lineTo(xAt(0),     PAD.top + cH);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(115,145,212,0.13)';
+  ctx.fill();
+
+  // Temp line
+  const grad = ctx.createLinearGradient(PAD.left, 0, W - PAD.right, 0);
+  grad.addColorStop(0, '#7391d4');
+  grad.addColorStop(1, '#a85ce8');
+  ctx.beginPath();
+  items.forEach((_, i) => {
+    const x = xAt(i), y = yAt(temps[i]);
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.strokeStyle = grad;
+  ctx.lineWidth   = 2.5;
+  ctx.lineJoin    = 'round';
+  ctx.lineCap     = 'round';
+  ctx.stroke();
+
+  // Temp labels
+  ctx.font      = '11px Segoe UI, system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#e7e7eb';
+  const step = Math.max(1, Math.floor(n / 8));
+  items.forEach((_, i) => {
+    if (i % step === 0 || i === n - 1) {
+      ctx.fillText(temps[i] + '°', xAt(i), yAt(temps[i]) - 6);
+    }
+  });
+
+  // X-axis time labels
+  ctx.fillStyle = '#a09fb1';
+  ctx.font      = '10px Segoe UI, system-ui, sans-serif';
+  items.forEach((item, i) => {
+    if (i % step === 0 || i === n - 1) {
+      const h     = parseInt(item.time.substring(0, 2), 10);
+      const label = item.date > nowDs ? `내일 ${h}시` : `${h}시`;
+      ctx.fillText(label, xAt(i), H - 7);
+    }
+  });
+
+  // Now marker
+  ctx.beginPath();
+  ctx.moveTo(xAt(0), PAD.top);
+  ctx.lineTo(xAt(0), PAD.top + cH);
+  ctx.strokeStyle = 'rgba(255,220,80,0.5)';
+  ctx.lineWidth   = 1.5;
+  ctx.setLineDash([4, 3]);
+  ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+/* ── Weather Alerts ── */
+async function loadAlerts(city) {
+  const banner = document.getElementById('alert-banner');
+  if (!banner) return;
+  try {
+    const res = await fetch(`/api/alerts?city=${encodeURIComponent(city)}`);
+    if (!res.ok) { banner.style.display = 'none'; return; }
+    const alerts = await res.json();
+    if (!alerts.length) { banner.style.display = 'none'; return; }
+    banner.innerHTML = alerts.map((a) =>
+      `<div class="alert-item alert-${a.level}">⚠️ <strong>${a.type}</strong>${a.region ? ' · ' + a.region : ''}</div>`
+    ).join('');
+    banner.style.display = '';
+  } catch {
+    banner.style.display = 'none';
+  }
 }
 
 /* ── Theme ── */
@@ -364,6 +503,7 @@ function setUnit(unit) {
   if (forecastData) {
     renderHourly(forecastData.hourly);
     renderWeek(forecastData.daily);
+    renderTempChart(forecastData.hourly);
   }
   renderSavedCities(); // 저장 카드 온도도 갱신
 }
@@ -543,6 +683,7 @@ async function searchCity(city, mobileTarget = 'sidebar') {
       forecastData = fData;
       renderHourly(fData.hourly);
       renderWeek(fData.daily);
+      renderTempChart(fData.hourly);
     } else {
       forecastData = null;
       document.getElementById('forecast-row').innerHTML =
@@ -559,6 +700,7 @@ async function searchCity(city, mobileTarget = 'sidebar') {
     }
 
     renderSavedCities();
+    loadAlerts(city);
   } catch (err) {
     showError(err.message || '오류가 발생했습니다.', err.hint);
   } finally {

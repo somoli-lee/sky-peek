@@ -447,6 +447,45 @@ app.get('/api/air', async (req, res) => {
   }
 });
 
+// ── GET /api/alerts ──────────────────────────────────────────────────────────
+app.get('/api/alerts', async (_req, res) => {
+  const authKey = process.env.KMA_API_KEY;
+  if (!authKey) return res.json([]);
+
+  const pad = (n) => String(n).padStart(2, '0');
+  const kst = new Date(Date.now() + 9 * 60 * 60 * 1000);
+  const tmFc =
+    `${kst.getUTCFullYear()}${pad(kst.getUTCMonth() + 1)}${pad(kst.getUTCDate())}` +
+    `${pad(kst.getUTCHours())}${pad(kst.getUTCMinutes())}`;
+
+  try {
+    const url =
+      `http://apis.data.go.kr/1360000/WthrWrnInfoService/getWthrWrnMsg` +
+      `?serviceKey=${authKey}&pageNo=1&numOfRows=10&dataType=JSON` +
+      `&fromTmFc=${tmFc}&toTmFc=${tmFc}`;
+
+    const resp = await fetch(url);
+    const data = await resp.json();
+
+    const header = data?.response?.header;
+    if (!header || header.resultCode !== '00') return res.json([]);
+
+    const raw   = data?.response?.body?.items?.item ?? [];
+    const items = Array.isArray(raw) ? raw : [raw];
+
+    const alerts = items.map((item) => ({
+      type:   item.title  ?? item.wrnId  ?? '특보',
+      region: item.tmEf   ?? '',
+      level:  item.wrnLvl === '12' ? 'danger' : 'warning',
+    }));
+
+    res.json(alerts);
+  } catch (err) {
+    console.error('[/api/alerts]', err.message);
+    res.json([]);
+  }
+});
+
 // ── GET /api/map ─────────────────────────────────────────────────────────────
 app.get('/api/map', async (_req, res) => {
   if (mapCache && Date.now() - mapCacheTime < MAP_CACHE_TTL) {
